@@ -25,6 +25,11 @@ def read_root():
     return {"mensaje": "Hola, mi API funciona"}
 
 
+@app.get("/api/health/")
+def health_check():
+    return {"status": "ok"}
+
+
 # ---------- Users ----------
 @app.post("/users", response_model=schemas.UserOut)
 def create_user(user: schemas.UserCreate, db: Session = Depends(get_db)):
