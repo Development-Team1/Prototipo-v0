@@ -18,7 +18,11 @@ app = FastAPI()
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["https://frontend-miniproyecto1-fe1u-one.vercel.app"],
+    allow_origins=[
+        "https://frontend-miniproyecto1-fe1u-one.vercel.app",
+        "http://localhost:5173",
+        "http://localhost:5174",
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -38,7 +42,7 @@ def read_root():
     return {"mensaje": "Hola, mi API funciona"}
 
 
-@app.get("/api/health/")
+@app.get("/api/health")
 def health_check():
     return {"status": "ok"}
 
