@@ -1,6 +1,8 @@
 from typing import List, Optional
 
-from fastapi import Depends, FastAPI, HTTPException
+import logging
+
+from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -8,6 +10,8 @@ from sqlalchemy.orm import Session
 import models
 import schemas
 from database import get_db
+
+logger = logging.getLogger("uvicorn.access")
 
 app = FastAPI()
 
@@ -18,6 +22,14 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.middleware("http")
+async def log_request_origin(request: Request, call_next):
+    response = await call_next(request)
+    origin = request.headers.get("origin") or request.headers.get("referer") or "sin origen"
+    logger.info(f'{request.method} {request.url.path} -> {response.status_code} | origen: {origin}')
+    return response
 
 
 @app.get("/")
