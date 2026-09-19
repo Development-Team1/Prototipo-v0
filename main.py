@@ -11,6 +11,7 @@ import models
 import schemas
 from database import get_db
 
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("app")
 
 app = FastAPI()
