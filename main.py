@@ -11,7 +11,7 @@ import models
 import schemas
 from database import get_db
 
-logger = logging.getLogger("uvicorn.access")
+logger = logging.getLogger("app")
 
 app = FastAPI()
 
