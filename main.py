@@ -206,3 +206,42 @@ def list_daily_capacity(user_id: Optional[int] = None, db: Session = Depends(get
     if user_id is not None:
         query = query.filter(models.DailyCapacity.user_id == user_id)
     return query.all()
+
+
+# ---------- Events ----------
+@app.post("/events", response_model=schemas.EventOut, status_code=201)
+def create_event(event: schemas.EventCreate, db: Session = Depends(get_db)):
+    db_event = models.Event(
+        nombre=event.nombre,
+        tipo=event.tipo,
+        fecha=event.fecha,
+    )
+    for tarea in event.tareas:
+        db_event.tareas.append(
+            models.Task(
+                nombre=tarea.nombre,
+                plazo=tarea.plazo,
+                horas_estimadas=tarea.horas_estimadas,
+            )
+        )
+    db.add(db_event)
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(status_code=400, detail="No se pudo guardar el evento")
+    db.refresh(db_event)
+    return db_event
+
+
+@app.get("/events", response_model=List[schemas.EventOut])
+def list_events(db: Session = Depends(get_db)):
+    return db.query(models.Event).all()
+
+
+@app.get("/events/{event_id}", response_model=schemas.EventOut)
+def get_event(event_id: int, db: Session = Depends(get_db)):
+    event = db.query(models.Event).filter(models.Event.id == event_id).first()
+    if not event:
+        raise HTTPException(status_code=404, detail="Evento no encontrado")
+    return event

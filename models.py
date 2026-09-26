@@ -13,7 +13,8 @@ from sqlalchemy import (
     UniqueConstraint,
 )
 from sqlalchemy.sql import func
-
+from sqlalchemy import Numeric
+from sqlalchemy.orm import relationship
 from database import Base
 
 
@@ -69,3 +70,32 @@ class DailyCapacity(Base):
     )
     day = Column(Date, nullable=False)
     available_minutes = Column(Integer, nullable=False)
+
+
+class Event(Base):
+    __tablename__ = "events"
+
+    id = Column(Integer, primary_key=True, index=True)
+    nombre = Column(String(200), nullable=False)
+    tipo = Column(String(100), nullable=False)
+    fecha = Column(Date, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    tareas = relationship(
+        "Task", back_populates="evento", cascade="all, delete-orphan"
+    )
+
+
+class Task(Base):
+    __tablename__ = "tasks"
+
+    id = Column(Integer, primary_key=True, index=True)
+    event_id = Column(
+        Integer, ForeignKey("events.id", ondelete="CASCADE"), nullable=False
+    )
+    nombre = Column(String(200), nullable=False)
+    plazo = Column(Date, nullable=False)
+    horas_estimadas = Column(Numeric, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    evento = relationship("Event", back_populates="tareas")
