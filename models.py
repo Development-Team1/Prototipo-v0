@@ -30,6 +30,8 @@ class User(Base):
     user_id = Column(BigInteger, primary_key=True, autoincrement=True)
     name = Column(String(100), nullable=False)
     email = Column(String(150), nullable=False, unique=True)
+    # Nullable para no romper usuarios creados antes de existir el login
+    password_hash = Column(String(255))
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
 
@@ -76,6 +78,10 @@ class Event(Base):
     __tablename__ = "events"
 
     id = Column(Integer, primary_key=True, index=True)
+    # Dueño del evento: cada usuario solo ve y modifica los suyos
+    user_id = Column(
+        BigInteger, ForeignKey("user.user_id", ondelete="CASCADE"), index=True
+    )
     nombre = Column(String(200), nullable=False)
     tipo = Column(String(100), nullable=False)
     fecha = Column(Date, nullable=False)
