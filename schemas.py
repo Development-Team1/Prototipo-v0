@@ -10,21 +10,64 @@ class StatusEnum(str, Enum):
     completada = "completada"
 
 
-# ---------- User ----------
-class UserCreate(BaseModel):
+# ---------- User / Auth ----------
+class UserRegister(BaseModel):
     name: str
     email: EmailStr
+    password: str
+
+    @field_validator("name")
+    @classmethod
+    def name_no_vacio(cls, v: str) -> str:
+        v = v.strip()
+        if not v:
+            raise ValueError("El nombre es obligatorio")
+        if len(v) > 100:
+            raise ValueError("El nombre no puede superar los 100 caracteres")
+        return v
+
+    @field_validator("email")
+    @classmethod
+    def email_minusculas(cls, v: str) -> str:
+        return v.lower()
+
+    @field_validator("password")
+    @classmethod
+    def password_valida(cls, v: str) -> str:
+        if len(v) < 8:
+            raise ValueError("La contraseña debe tener al menos 8 caracteres")
+        if len(v.encode("utf-8")) > 72:  # límite técnico de bcrypt
+            raise ValueError("La contraseña es demasiado larga (máximo 72 bytes)")
+        return v
 
 
-class UserOut(UserCreate):
+class UserLogin(BaseModel):
+    email: EmailStr
+    password: str
+
+    @field_validator("email")
+    @classmethod
+    def email_minusculas(cls, v: str) -> str:
+        return v.lower()
+
+
+class UserOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     user_id: int
+    name: str
+    email: EmailStr
     created_at: datetime
+
+
+class TokenOut(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    user: UserOut
 
 
 # ---------- Activity ----------
 class ActivityCreate(BaseModel):
-    user_id: int
+    user_id: Optional[int] = None  # se ignora: el servidor usa el usuario del token
     title: str
     course: Optional[str] = None
     due_date: Optional[date] = None
@@ -51,7 +94,7 @@ class SubtaskOut(SubtaskCreate):
 
 # ---------- DailyCapacity ----------
 class DailyCapacityCreate(BaseModel):
-    user_id: int
+    user_id: Optional[int] = None  # se ignora: el servidor usa el usuario del token
     day: date
     available_minutes: int
 
