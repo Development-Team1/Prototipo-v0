@@ -2,7 +2,7 @@ from datetime import date, datetime
 from enum import Enum
 from typing import Optional
 
-from pydantic import BaseModel, ConfigDict, EmailStr, field_validator
+from pydantic import BaseModel, ConfigDict, EmailStr, field_validator, model_validator
 
 class StatusEnum(str, Enum):
     pendiente = "pendiente"
@@ -153,6 +153,17 @@ class EventCreate(BaseModel):
         if not v or not v.strip():
             raise ValueError("El tipo de evento es obligatorio")
         return v.strip()
+
+    @model_validator(mode="after")
+    def plazos_no_posteriores_al_evento(self):
+        # Ninguna gestión puede vencer después de la fecha del evento
+        for t in self.tareas:
+            if t.plazo > self.fecha:
+                raise ValueError(
+                    f"El plazo de la gestión «{t.nombre}» no puede ser posterior "
+                    "a la fecha del evento"
+                )
+        return self
 
 
 class EventOut(BaseModel):
