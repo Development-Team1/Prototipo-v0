@@ -100,6 +100,28 @@ def me(current_user: models.User = Depends(get_current_user)):
     return current_user
 
 
+# ---------- Límite diario de horas (US-12) ----------
+DEFAULT_DAILY_LIMIT = 6.0
+
+
+@app.get("/settings/daily-limit", response_model=schemas.DailyLimitOut)
+def get_daily_limit(user: models.User = Depends(get_current_user)):
+    horas = user.daily_hours_limit
+    return {"horas": float(horas) if horas is not None else DEFAULT_DAILY_LIMIT}
+
+
+@app.put("/settings/daily-limit", response_model=schemas.DailyLimitOut)
+def set_daily_limit(
+    data: schemas.DailyLimitIn,
+    db: Session = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+):
+    user.daily_hours_limit = data.horas
+    db.commit()
+    db.refresh(user)
+    return {"horas": float(user.daily_hours_limit)}
+
+
 # ---------- Events (cada usuario solo accede a los suyos) ----------
 def _own_event(db: Session, event_id: int, user: models.User) -> models.Event:
     event = (
