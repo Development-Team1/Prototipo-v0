@@ -59,6 +59,21 @@ class UserOut(BaseModel):
     created_at: datetime
 
 
+class DailyLimitIn(BaseModel):
+    horas: float
+
+    @field_validator("horas")
+    @classmethod
+    def horas_en_rango(cls, v: float) -> float:
+        if not (1 <= v <= 16):
+            raise ValueError("El límite debe estar entre 1 y 16 horas")
+        return v
+
+
+class DailyLimitOut(BaseModel):
+    horas: float
+
+
 class TokenOut(BaseModel):
     access_token: str
     token_type: str = "bearer"

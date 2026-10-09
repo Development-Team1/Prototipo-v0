@@ -32,6 +32,8 @@ class User(Base):
     email = Column(String(150), nullable=False, unique=True)
     # Nullable para no romper usuarios creados antes de existir el login
     password_hash = Column(String(255))
+    # Límite de horas de gestión por día (US-12). Por defecto 6; rango válido 1 a 16
+    daily_hours_limit = Column(Numeric(4, 2), nullable=False, server_default="6")
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
 
