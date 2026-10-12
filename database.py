@@ -1,6 +1,7 @@
 import os
 from dotenv import load_dotenv
 from sqlalchemy import create_engine
+from sqlalchemy.engine import make_url
 from sqlalchemy.orm import sessionmaker, declarative_base
 
 # Carga las variables del archivo .env (solo tiene efecto en local;
@@ -17,7 +18,11 @@ if not DATABASE_URL:
         "conexión de Supabase (Connection Pooling, puerto 6543)."
     )
 
-engine = create_engine(DATABASE_URL, pool_pre_ping=True)
+database_url = make_url(DATABASE_URL)
+if database_url.drivername == "postgresql+psycopg":
+    database_url = database_url.set(drivername="postgresql+pg8000")
+
+engine = create_engine(database_url, pool_pre_ping=True)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 

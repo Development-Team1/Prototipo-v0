@@ -1,7 +1,7 @@
 fastapi
 uvicorn
 sqlalchemy
-psycopg[binary]
+pg8000
 pydantic[email]
 python-dotenv
 bcrypt
