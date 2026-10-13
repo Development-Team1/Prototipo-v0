@@ -1,6 +1,7 @@
 from typing import List, Optional
 
 import logging
+from datetime import date
 
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -9,6 +10,13 @@ from sqlalchemy.orm import Session
 
 import models
 import schemas
+from carga import (
+    dia_que_empeora,
+    dias_sobre_limite,
+    fecha_corta,
+    horas_txt,
+    sumar_por_dia,
+)
 from auth import (
     create_access_token,
     get_current_user,
@@ -116,6 +124,26 @@ def set_daily_limit(
     db: Session = Depends(get_db),
     user: models.User = Depends(get_current_user),
 ):
+    # No se puede bajar el límite por debajo de lo que ya hay planificado en algún día
+    # (se revisan los días desde hoy: los pasados ya no se pueden reprogramar)
+    filas = (
+        db.query(models.Task.plazo, models.Task.horas_estimadas)
+        .join(models.Event, models.Event.id == models.Task.event_id)
+        .filter(models.Event.user_id == user.user_id)
+        .all()
+    )
+    excedidos = dias_sobre_limite(sumar_por_dia(filas), data.horas, date.today())
+    if excedidos:
+        lista = ", ".join(f"{fecha_corta(d)} ({horas_txt(t)}h)" for d, t in excedidos[:3])
+        if len(excedidos) > 3:
+            lista += "…"
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"No puedes fijar un límite de {horas_txt(data.horas)}h porque hay días con más "
+                f"horas planificadas: {lista}. Reprograma o reduce esas gestiones primero."
+            ),
+        )
     user.daily_hours_limit = data.horas
     db.commit()
     db.refresh(user)
@@ -135,6 +163,37 @@ def _own_event(db: Session, event_id: int, user: models.User) -> models.Event:
     return event
 
 
+def _verificar_sobrecarga(
+    db: Session, user: models.User, tareas, event_id: Optional[int] = None
+) -> None:
+    """Rechaza guardar un evento si alguno de sus días supera el límite diario del usuario."""
+    limite = (
+        float(user.daily_hours_limit)
+        if user.daily_hours_limit is not None
+        else DEFAULT_DAILY_LIMIT
+    )
+    filas = (
+        db.query(models.Task.event_id, models.Task.plazo, models.Task.horas_estimadas)
+        .join(models.Event, models.Event.id == models.Task.event_id)
+        .filter(models.Event.user_id == user.user_id)
+        .all()
+    )
+    otros = sumar_por_dia((p, h) for eid, p, h in filas if eid != event_id)
+    antes = sumar_por_dia((p, h) for eid, p, h in filas if eid == event_id)
+    nuevas = sumar_por_dia((t.plazo, t.horas_estimadas) for t in tareas)
+    hallado = dia_que_empeora(otros, antes, nuevas, limite)
+    if hallado:
+        dia, total = hallado
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"El {fecha_corta(dia)} quedaría con {horas_txt(total)}h de gestión "
+                f"planificadas (límite {horas_txt(limite)}h). "
+                "Mueve gestiones a otro día o reduce sus horas."
+            ),
+        )
+
+
 def _build_tasks(event: schemas.EventCreate) -> list[models.Task]:
     return [
         models.Task(
@@ -150,6 +209,7 @@ def create_event(
     db: Session = Depends(get_db),
     user: models.User = Depends(get_current_user),
 ):
+    _verificar_sobrecarga(db, user, event.tareas)
     db_event = models.Event(
         user_id=user.user_id,
         nombre=event.nombre,
@@ -196,6 +256,7 @@ def update_event(
     user: models.User = Depends(get_current_user),
 ):
     db_event = _own_event(db, event_id, user)
+    _verificar_sobrecarga(db, user, event.tareas, event_id)
     db_event.nombre = event.nombre
     db_event.tipo = event.tipo
     db_event.fecha = event.fecha
