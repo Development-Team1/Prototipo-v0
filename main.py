@@ -2,7 +2,7 @@ from typing import List, Optional
 
 import logging
 from datetime import date
-
+from datetime import datetime, timezone
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.exc import IntegrityError
@@ -194,14 +194,25 @@ def _verificar_sobrecarga(
         )
 
 
-def _build_tasks(event: schemas.EventCreate) -> list[models.Task]:
-    return [
-        models.Task(
+def _build_tasks(event: schemas.EventCreate, previous=None) -> list[models.Task]:
+    # previous: gestiones actuales del evento. Si una conserva su nombre,
+    # mantiene su estado, nota y fecha de finalización
+    old = {}
+    for t in previous or []:
+        old.setdefault(t.nombre, []).append(t)
+    tasks = []
+    for t in event.tareas:
+        new = models.Task(
             nombre=t.nombre, plazo=t.plazo, horas_estimadas=t.horas_estimadas
         )
-        for t in event.tareas
-    ]
-
+        match = old.get(t.nombre)
+        if match:
+            prev = match.pop(0)
+            new.status = prev.status
+            new.note = prev.note
+            new.done_at = prev.done_at
+        tasks.append(new)
+    return tasks
 
 @app.post("/events", response_model=schemas.EventOut, status_code=201)
 def create_event(
@@ -261,7 +272,7 @@ def update_event(
     db_event.tipo = event.tipo
     db_event.fecha = event.fecha
     # Reemplaza las gestiones: las anteriores se eliminan (delete-orphan)
-    db_event.tareas = _build_tasks(event)
+    db_event.tareas = _build_tasks(event, list(db_event.tareas))
     try:
         db.commit()
     except IntegrityError:
@@ -282,6 +293,44 @@ def delete_event(
     db.commit()
     return {"mensaje": "Evento eliminado"}
 
+# ---------- Registrar avance de una gestión (hecha / pospuesta + nota) ----------
+def _own_task(db: Session, task_id: int, user: models.User) -> models.Task:
+    task = (
+        db.query(models.Task)
+        .join(models.Event, models.Event.id == models.Task.event_id)
+        .filter(models.Task.id == task_id, models.Event.user_id == user.user_id)
+        .first()
+    )
+    if not task:
+        raise HTTPException(status_code=404, detail="Gestión no encontrada")
+    return task
+
+
+@app.patch("/tasks/{task_id}", response_model=schemas.TaskOut)
+def update_task_progress(
+    task_id: int,
+    data: schemas.TaskProgressUpdate,
+    db: Session = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+):
+    task = _own_task(db, task_id, user)
+    changes = data.model_dump(exclude_unset=True)
+
+    # La nota solo cambia si se envía: cambiar el estado no la borra
+    if "note" in changes:
+        task.note = changes["note"]
+
+    new_status = changes.get("status")
+    if new_status is not None:
+        if new_status == "hecha" and task.status != "hecha":
+            task.done_at = datetime.now(timezone.utc)  # lo llena el servidor
+        elif new_status != "hecha":
+            task.done_at = None
+        task.status = new_status
+
+    db.commit()
+    db.refresh(task)
+    return task
 
 # ---------- Activities (prototipo anterior; ahora también privadas por usuario) ----------
 def _own_activity(db: Session, activity_id: int, user: models.User) -> models.Activity:
