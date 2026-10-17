@@ -1,6 +1,6 @@
 from datetime import date, datetime
 from enum import Enum
-from typing import Optional
+from typing import Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, EmailStr, field_validator, model_validator
 
@@ -147,6 +147,30 @@ class TaskOut(BaseModel):
     nombre: str
     plazo: date
     horas_estimadas: float
+    status: str = "pendiente"
+    note: Optional[str] = None
+    done_at: Optional[datetime] = None
+
+
+class TaskProgressUpdate(BaseModel):
+    status: Optional[Literal["pendiente", "hecha", "pospuesta"]] = None
+    note: Optional[str] = None
+
+    @field_validator("note")
+    @classmethod
+    def note_valida(cls, v):
+        if v is None:
+            return None
+        v = v.strip()
+        if len(v) > 500:
+            raise ValueError("La nota no puede superar los 500 caracteres")
+        return v or None
+
+    @model_validator(mode="after")
+    def al_menos_un_campo(self):
+        if not self.model_fields_set:
+            raise ValueError("Envía al menos el estado o la nota")
+        return self
 
 
 class EventCreate(BaseModel):

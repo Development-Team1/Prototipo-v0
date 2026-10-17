@@ -10,6 +10,7 @@ from sqlalchemy import (
     ForeignKey,
     Integer,
     String,
+    Text,
     UniqueConstraint,
 )
 from sqlalchemy.sql import func
@@ -104,6 +105,8 @@ class Task(Base):
     nombre = Column(String(200), nullable=False)
     plazo = Column(Date, nullable=False)
     horas_estimadas = Column(Numeric, nullable=False)
+    status = Column(String(20), nullable=False, server_default="pendiente")
+    note = Column(Text)
+    done_at = Column(DateTime(timezone=True))
     created_at = Column(DateTime(timezone=True), server_default=func.now())
-
     evento = relationship("Event", back_populates="tareas")
