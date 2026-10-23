@@ -12,12 +12,13 @@ import models
 import schemas
 from carga import (
     calcular_progreso,
-    dia_que_empeora,
-    emparejar_gestiones,
     dias_sobre_limite,
+    emparejar_gestiones,
+    evaluar_reapertura,
+    evaluar_sobrecarga,
     fecha_corta,
     horas_txt,
-    sumar_por_dia,
+    totales_activos,
 )
 from auth import (
     create_access_token,
@@ -128,13 +129,9 @@ def set_daily_limit(
 ):
     # No se puede bajar el límite por debajo de lo que ya hay planificado en algún día
     # (se revisan los días desde hoy: los pasados ya no se pueden reprogramar)
-    filas = (
-        db.query(models.Task.plazo, models.Task.horas_estimadas)
-        .join(models.Event, models.Event.id == models.Task.event_id)
-        .filter(models.Event.user_id == user.user_id)
-        .all()
-    )
-    excedidos = dias_sobre_limite(sumar_por_dia(filas), data.horas, date.today())
+    # Las gestiones hechas no cuentan: ya no ocupan horas
+    filas = _gestiones_del_usuario(db, user)
+    excedidos = dias_sobre_limite(totales_activos(filas), data.horas, date.today())
     if excedidos:
         lista = ", ".join(f"{fecha_corta(d)} ({horas_txt(t)}h)" for d, t in excedidos[:3])
         if len(excedidos) > 3:
@@ -165,25 +162,35 @@ def _own_event(db: Session, event_id: int, user: models.User) -> models.Event:
     return event
 
 
-def _verificar_sobrecarga(
-    db: Session, user: models.User, tareas, event_id: Optional[int] = None
-) -> None:
-    """Rechaza guardar un evento si alguno de sus días supera el límite diario del usuario."""
-    limite = (
-        float(user.daily_hours_limit)
-        if user.daily_hours_limit is not None
-        else DEFAULT_DAILY_LIMIT
-    )
-    filas = (
-        db.query(models.Task.event_id, models.Task.plazo, models.Task.horas_estimadas)
+def _limite_de(user: models.User) -> float:
+    horas = user.daily_hours_limit
+    return float(horas) if horas is not None else DEFAULT_DAILY_LIMIT
+
+
+def _gestiones_del_usuario(db: Session, user: models.User):
+    """Todas las gestiones del usuario, con lo necesario para contar horas por día."""
+    return (
+        db.query(
+            models.Task.id,
+            models.Task.event_id,
+            models.Task.nombre,
+            models.Task.plazo,
+            models.Task.horas_estimadas,
+            models.Task.status,
+        )
         .join(models.Event, models.Event.id == models.Task.event_id)
         .filter(models.Event.user_id == user.user_id)
         .all()
     )
-    otros = sumar_por_dia((p, h) for eid, p, h in filas if eid != event_id)
-    antes = sumar_por_dia((p, h) for eid, p, h in filas if eid == event_id)
-    nuevas = sumar_por_dia((t.plazo, t.horas_estimadas) for t in tareas)
-    hallado = dia_que_empeora(otros, antes, nuevas, limite)
+
+
+def _verificar_sobrecarga(
+    db: Session, user: models.User, tareas, event_id: Optional[int] = None
+) -> None:
+    """Rechaza guardar un evento si alguno de sus días supera el límite diario del usuario.
+    Las gestiones ya hechas no cuentan."""
+    limite = _limite_de(user)
+    hallado = evaluar_sobrecarga(_gestiones_del_usuario(db, user), tareas, event_id, limite)
     if hallado:
         dia, total = hallado
         raise HTTPException(
@@ -192,6 +199,22 @@ def _verificar_sobrecarga(
                 f"El {fecha_corta(dia)} quedaría con {horas_txt(total)}h de gestión "
                 f"planificadas (límite {horas_txt(limite)}h). "
                 "Mueve gestiones a otro día o reduce sus horas."
+            ),
+        )
+
+
+def _verificar_reapertura(db: Session, user: models.User, task: models.Task) -> None:
+    """Una gestión hecha vuelve a ocupar horas al reabrirla: no puede sobrecargar su día."""
+    limite = _limite_de(user)
+    hallado = evaluar_reapertura(_gestiones_del_usuario(db, user), task, limite)
+    if hallado:
+        dia, total = hallado
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"No puedes reabrir esta gestión: el {fecha_corta(dia)} quedaría con "
+                f"{horas_txt(total)}h de gestión planificadas (límite {horas_txt(limite)}h). "
+                "Edita el evento para moverla a otro día antes de reabrirla."
             ),
         )
 
@@ -329,6 +352,10 @@ def update_task_progress(
 ):
     task = _own_task(db, task_id, user)
     changes = data.model_dump(exclude_unset=True)
+
+    # Reabrir una gestión hecha vuelve a sumar sus horas: no puede sobrecargar su día
+    if task.status == "hecha" and changes.get("status") in ("pendiente", "pospuesta"):
+        _verificar_reapertura(db, user, task)
 
     # La nota solo cambia si se envía: cambiar el estado no la borra
     if "note" in changes:

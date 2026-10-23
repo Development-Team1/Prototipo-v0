@@ -92,3 +92,39 @@ def emparejar_gestiones(previas, solicitadas) -> list:
             resultado[i] = previa
             usadas.add(previa.id)
     return resultado
+
+
+# ---------- Las gestiones hechas ya no cuentan en las horas del día ----------
+
+def esta_activa(fila) -> bool:
+    """Una gestión hecha ya no ocupa horas del día: solo cuentan las pendientes y pospuestas."""
+    return getattr(fila, "status", "pendiente") != "hecha"
+
+
+def totales_activos(filas) -> dict:
+    """Horas por día de las gestiones activas. filas: objetos con plazo, horas_estimadas y status."""
+    return sumar_por_dia((f.plazo, f.horas_estimadas) for f in filas if esta_activa(f))
+
+
+def evaluar_sobrecarga(filas, tareas, event_id, limite: float):
+    """Al guardar un evento: primer día (dia, total) que quedaría sobrecargado, o None.
+
+    filas: gestiones del usuario (id, event_id, nombre, plazo, horas_estimadas, status).
+    tareas: gestiones que llegan en la petición. Las que ya estaban hechas no cuentan."""
+    previas = [f for f in filas if event_id is not None and f.event_id == event_id]
+    otros = totales_activos(f for f in filas if f.event_id != event_id)
+    antes = totales_activos(previas)
+    pares = emparejar_gestiones(previas, tareas)
+    nuevas = sumar_por_dia(
+        (t.plazo, t.horas_estimadas)
+        for t, previa in zip(tareas, pares)
+        if previa is None or esta_activa(previa)
+    )
+    return dia_que_empeora(otros, antes, nuevas, limite)
+
+
+def evaluar_reapertura(filas, tarea, limite: float):
+    """Al reabrir una gestión hecha (volver a pendiente o pospuesta): (dia, total) si su día
+    quedaría sobrecargado, o None."""
+    otros = totales_activos(f for f in filas if f.id != tarea.id)
+    return dia_que_empeora(otros, {}, {tarea.plazo: float(tarea.horas_estimadas)}, limite)
