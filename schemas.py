@@ -2,7 +2,16 @@ from datetime import date, datetime
 from enum import Enum
 from typing import Literal, Optional
 
-from pydantic import BaseModel, ConfigDict, EmailStr, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    EmailStr,
+    computed_field,
+    field_validator,
+    model_validator,
+)
+
+from carga import calcular_progreso
 
 class StatusEnum(str, Enum):
     pendiente = "pendiente"
@@ -121,6 +130,8 @@ class DailyCapacityOut(DailyCapacityCreate):
 
 # ---------- Event ----------
 class TaskCreate(BaseModel):
+    # Opcional: si se envía el id de una gestión existente, conserva su estado y nota
+    id: Optional[int] = None
     nombre: str
     plazo: date
     horas_estimadas: float
@@ -168,7 +179,7 @@ class TaskProgressUpdate(BaseModel):
 
     @model_validator(mode="after")
     def al_menos_un_campo(self):
-        if not self.model_fields_set:
+        if self.status is None and "note" not in self.model_fields_set:
             raise ValueError("Envía al menos el estado o la nota")
         return self
 
@@ -205,6 +216,16 @@ class EventCreate(BaseModel):
         return self
 
 
+class ProgressOut(BaseModel):
+    total: int
+    hechas: int
+    pospuestas: int
+    pendientes: int
+    faltan: int
+    porcentaje: int
+    completo: bool
+
+
 class EventOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: int
@@ -213,3 +234,9 @@ class EventOut(BaseModel):
     fecha: date
     created_at: datetime
     tareas: list[TaskOut] = []
+
+    @computed_field
+    @property
+    def progreso(self) -> ProgressOut:
+        # Siempre se calcula a partir del estado real de las gestiones (US-10)
+        return ProgressOut(**calcular_progreso(t.status for t in self.tareas))
