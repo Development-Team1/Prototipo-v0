@@ -38,3 +38,57 @@ def dia_que_empeora(otros: dict, propias_antes: dict, nuevas: dict, limite: floa
 def dias_sobre_limite(totales: dict, limite: float, desde: date) -> list:
     """Días desde `desde` cuyo total supera el límite, de menor a mayor."""
     return sorted((d, t) for d, t in totales.items() if d >= desde and t > limite + EPS)
+
+
+def calcular_progreso(estados) -> dict:
+    """Progreso de preparación de un evento a partir del estado de sus gestiones (US-10).
+
+    - hechas: gestiones con estado "hecha".
+    - pospuestas: gestiones con estado "pospuesta" (siguen sin estar listas).
+    - pendientes: el resto (cualquier otro estado cuenta como pendiente).
+    - faltan: todo lo que no está hecho, es decir, pendientes + pospuestas.
+    - porcentaje: hechas / total, redondeado al entero más cercano (0 si no hay gestiones).
+    - completo: True solo si hay gestiones y todas están hechas.
+    """
+    estados = list(estados)
+    total = len(estados)
+    hechas = sum(1 for e in estados if e == "hecha")
+    pospuestas = sum(1 for e in estados if e == "pospuesta")
+    return {
+        "total": total,
+        "hechas": hechas,
+        "pospuestas": pospuestas,
+        "pendientes": total - hechas - pospuestas,
+        "faltan": total - hechas,
+        "porcentaje": int(hechas * 100 / total + 0.5) if total else 0,
+        "completo": total > 0 and hechas == total,
+    }
+
+
+def emparejar_gestiones(previas, solicitadas) -> list:
+    """Para cada gestión solicitada devuelve la gestión previa que le corresponde (o None).
+
+    Sirve para que, al editar un evento, cada gestión conserve su estado, nota y fecha de
+    finalización. Primero se empareja por id y, si no hay id, por nombre (en orden).
+    Cada gestión previa se usa una sola vez."""
+    por_id = {p.id: p for p in previas}
+    usadas = set()
+    resultado = [None] * len(solicitadas)
+
+    for i, s in enumerate(solicitadas):
+        sid = getattr(s, "id", None)
+        previa = por_id.get(sid) if sid is not None else None
+        if previa is not None and previa.id not in usadas:
+            resultado[i] = previa
+            usadas.add(previa.id)
+
+    libres = defaultdict(list)
+    for p in previas:
+        if p.id not in usadas:
+            libres[p.nombre].append(p)
+    for i, s in enumerate(solicitadas):
+        if resultado[i] is None and libres.get(s.nombre):
+            previa = libres[s.nombre].pop(0)
+            resultado[i] = previa
+            usadas.add(previa.id)
+    return resultado

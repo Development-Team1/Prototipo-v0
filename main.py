@@ -11,7 +11,9 @@ from sqlalchemy.orm import Session
 import models
 import schemas
 from carga import (
+    calcular_progreso,
     dia_que_empeora,
+    emparejar_gestiones,
     dias_sobre_limite,
     fecha_corta,
     horas_txt,
@@ -195,24 +197,25 @@ def _verificar_sobrecarga(
 
 
 def _build_tasks(event: schemas.EventCreate, previous=None) -> list[models.Task]:
-    # previous: gestiones actuales del evento. Si una conserva su nombre,
-    # mantiene su estado, nota y fecha de finalización
-    old = {}
-    for t in previous or []:
-        old.setdefault(t.nombre, []).append(t)
-    tasks = []
-    for t in event.tareas:
-        new = models.Task(
-            nombre=t.nombre, plazo=t.plazo, horas_estimadas=t.horas_estimadas
-        )
-        match = old.get(t.nombre)
-        if match:
-            prev = match.pop(0)
-            new.status = prev.status
-            new.note = prev.note
-            new.done_at = prev.done_at
-        tasks.append(new)
-    return tasks
+    """Gestiones del evento. Las que ya existían (por id o, si no hay id, por nombre) se
+    reutilizan: conservan su id, estado, nota y fecha de finalización aunque cambien su
+    plazo u horas. Las demás se crean como pendientes."""
+    previas = list(previous or [])
+    tareas = []
+    for t, previa in zip(event.tareas, emparejar_gestiones(previas, event.tareas)):
+        if previa is None:
+            tareas.append(
+                models.Task(
+                    nombre=t.nombre, plazo=t.plazo, horas_estimadas=t.horas_estimadas
+                )
+            )
+        else:
+            previa.nombre = t.nombre
+            previa.plazo = t.plazo
+            previa.horas_estimadas = t.horas_estimadas
+            tareas.append(previa)
+    return tareas
+
 
 @app.post("/events", response_model=schemas.EventOut, status_code=201)
 def create_event(
@@ -292,6 +295,17 @@ def delete_event(
     db.delete(db_event)
     db.commit()
     return {"mensaje": "Evento eliminado"}
+
+@app.get("/events/{event_id}/progress", response_model=schemas.ProgressOut)
+def get_event_progress(
+    event_id: int,
+    db: Session = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+):
+    """Barra de progreso de preparación (US-10): gestiones hechas respecto al total."""
+    event = _own_event(db, event_id, user)
+    return calcular_progreso(t.status for t in event.tareas)
+
 
 # ---------- Registrar avance de una gestión (hecha / pospuesta + nota) ----------
 def _own_task(db: Session, task_id: int, user: models.User) -> models.Task:
