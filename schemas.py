@@ -1,5 +1,4 @@
 from datetime import date, datetime
-from enum import Enum
 from typing import Literal, Optional
 
 from pydantic import (
@@ -12,11 +11,6 @@ from pydantic import (
 )
 
 from carga import calcular_progreso
-
-class StatusEnum(str, Enum):
-    pendiente = "pendiente"
-    en_progreso = "en_progreso"
-    completada = "completada"
 
 
 # ---------- User / Auth ----------
@@ -87,45 +81,6 @@ class TokenOut(BaseModel):
     access_token: str
     token_type: str = "bearer"
     user: UserOut
-
-
-# ---------- Activity ----------
-class ActivityCreate(BaseModel):
-    user_id: Optional[int] = None  # se ignora: el servidor usa el usuario del token
-    title: str
-    course: Optional[str] = None
-    due_date: Optional[date] = None
-    status: StatusEnum = StatusEnum.pendiente
-
-
-class ActivityOut(ActivityCreate):
-    model_config = ConfigDict(from_attributes=True)
-    activity_id: int
-
-
-# ---------- Subtask ----------
-class SubtaskCreate(BaseModel):
-    activity_id: int
-    title: str
-    estimated_minutes: Optional[int] = None
-    is_done: bool = False
-
-
-class SubtaskOut(SubtaskCreate):
-    model_config = ConfigDict(from_attributes=True)
-    subtask_id: int
-
-
-# ---------- DailyCapacity ----------
-class DailyCapacityCreate(BaseModel):
-    user_id: Optional[int] = None  # se ignora: el servidor usa el usuario del token
-    day: date
-    available_minutes: int
-
-
-class DailyCapacityOut(DailyCapacityCreate):
-    model_config = ConfigDict(from_attributes=True)
-    capacity_id: int
 
 
 # ---------- Event ----------
